@@ -34,6 +34,12 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+# In einer per ps2exe kompilierten exe ist $PSScriptRoot leer (das Skript
+# existiert dann nicht mehr als echte Datei) - ps2exe stellt stattdessen
+# $ScriptRoot bereit. Offiziell dokumentierter Fallback laut ps2exe-README,
+# funktioniert unverändert im normalen .ps1-Entwicklungsmodus mit.
+if (-not $PSScriptRoot -and $ScriptRoot) { $PSScriptRoot = $ScriptRoot }
+
 # __EMBEDDED_CORE_SCRIPT_INJECTION_POINT__
 # (Build-Exe.ps1 ersetzt obige Zeile durch eine $script:EmbeddedCoreScriptText-
 # Zuweisung. Muss hier stehen, NICHT vor [CmdletBinding()]/param() weiter
