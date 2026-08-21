@@ -82,6 +82,25 @@ function Compare-BiosVersion {
     return ($Current.Trim() -ne $Latest.Trim())
 }
 
+# --- Modul-Installation ohne interaktive Rückfragen -------------------------
+# Ohne das hier vorab zu erledigen, fragt PowerShellGet beim ersten
+# Install-Module ggf. interaktiv nach, ob der NuGet-Anbieter installiert
+# werden darf. In der Konsole kann man das noch mit "J" bestätigen, aber
+# die GUI (Hintergrund-Runspace, kein interaktiver Host) hat dafür keinen
+# Host, der eine Ja/Nein-Abfrage entgegennehmen kann - das schlägt dort mit
+# "ShouldContinue nicht unterstützt" fehl. Deshalb NuGet-Anbieter und
+# PSGallery-Vertrauen vorab explizit und nicht-interaktiv einrichten.
+
+function Initialize-PSGalleryAccess {
+    if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+        Write-Log 'NuGet-Anbieter (PackageManagement) nicht gefunden, installiere...'
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -Confirm:$false | Out-Null
+    }
+    if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    }
+}
+
 # --- HP -----------------------------------------------------------------
 
 function Get-HPLatestBios {
@@ -89,7 +108,8 @@ function Get-HPLatestBios {
 
     if (-not (Get-Module -ListAvailable -Name HPCMSL)) {
         Write-Log 'HP CMSL-Modul nicht gefunden, installiere aus PSGallery...' -Level WARN
-        Install-Module -Name HPCMSL -Scope CurrentUser -Force -AcceptLicense -ErrorAction Stop
+        Initialize-PSGalleryAccess
+        Install-Module -Name HPCMSL -Scope CurrentUser -Force -AcceptLicense -Confirm:$false -ErrorAction Stop
     }
     Import-Module HPCMSL -ErrorAction Stop
 
@@ -167,7 +187,8 @@ function Get-LenovoLatestBios {
 
     if (-not (Get-Module -ListAvailable -Name LSUClient)) {
         Write-Log 'LSUClient-Modul nicht gefunden, installiere aus PSGallery...' -Level WARN
-        Install-Module -Name LSUClient -Scope CurrentUser -Force -ErrorAction Stop
+        Initialize-PSGalleryAccess
+        Install-Module -Name LSUClient -Scope CurrentUser -Force -Confirm:$false -ErrorAction Stop
     }
     Import-Module LSUClient -ErrorAction Stop
 
