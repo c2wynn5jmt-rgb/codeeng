@@ -69,6 +69,18 @@ indem mehrere bekannte Property-Namen probiert werden und zusätzlich über
 alles fehl, wird die volle `Get-HPDeviceDetails`-Ausgabe ins Log geschrieben
 statt nur ein Fehler ohne Kontext.
 
+**Vierter Fund, selbes Gerät:** Plattform-ID (`876F`) wurde danach korrekt
+erkannt, aber `Get-SoftpaqList` brach mit HTTP 404 ab
+(`Could not find data file .../876f_64_11.0.25h2.cab`) — ohne `-Os`/`-OsVer`
+ermittelt HPCMSL die installierte Windows-Version selbst (hier 25H2) und
+holt die dazu passende HP-Referenzkatalogdatei; für eine sehr neue
+Windows-Version kann die bei HP noch fehlen. Behoben mit einem Fallback auf
+ältere Referenzversionen (`24H2`/`23H2`/`22H2`/`21H2`) nach demselben
+Prinzip wie beim Lenovo-404-Fix weiter oben — BIOS-Softpaqs sind i. d. R.
+nicht OS-Versions-spezifisch, nur die Katalog-Referenzdatei ist es
+(Fallback-Liste selbst nicht gegen HPs Katalog verifiziert, s. o. zur
+Doku-Zugänglichkeit).
+
 Der Lenovo-Pfad nutzt seit der zweiten Version das Community-Modul
 [LSUClient](https://github.com/jantari/LSUClient) statt eines eigenen
 Katalog-Parsers (der erste Versuch, Lenovos Katalog-XML direkt zu laden und

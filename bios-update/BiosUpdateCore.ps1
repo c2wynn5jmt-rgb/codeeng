@@ -195,10 +195,39 @@ function Get-HPLatestBios {
     }
     Write-Log "HP-Plattform-ID: $platform"
 
-    $softpaqs = Get-SoftpaqList -Platform $platform -Category BIOS -Bitness 64 -ErrorAction Stop |
-        Sort-Object -Property Version -Descending
+    # Ohne -Os/-OsVer ermittelt Get-SoftpaqList die installierte Windows-
+    # Version selbst und holt die dazu passende HP-Referenzkatalogdatei
+    # (z. B. ".../876f_64_11.0.25h2.cab"). Für eine sehr neue Windows-Version
+    # kann diese Datei bei HP noch fehlen (HTTP 404 "Could not find data
+    # file" - auf echter HP-Hardware verifiziert, 2026-08-22, Windows 25H2).
+    # Deshalb bei Fehlschlag auf ältere, mit hoher Wahrscheinlichkeit
+    # vorhandene Referenzversionen zurückfallen - BIOS-Softpaqs sind i. d. R.
+    # nicht OS-Versions-spezifisch, nur die Katalog-Referenzdatei ist es.
+    $osVerFallbacks = '24H2', '23H2', '22H2', '21H2'
+    $softpaqs = $null
+    $lastError = $null
+    try {
+        $softpaqs = Get-SoftpaqList -Platform $platform -Category BIOS -Bitness 64 -ErrorAction Stop |
+            Sort-Object -Property Version -Descending
+    } catch {
+        $lastError = $_
+        Write-Log "SoftPaq-Liste mit automatisch erkannter OS-Version fehlgeschlagen ($($_.Exception.Message)), versuche ältere Referenzversionen..." -Level WARN
+        foreach ($osVer in $osVerFallbacks) {
+            try {
+                $softpaqs = Get-SoftpaqList -Platform $platform -Category BIOS -Bitness 64 -Os win11 -OsVer $osVer -ErrorAction Stop |
+                    Sort-Object -Property Version -Descending
+                if ($softpaqs) {
+                    Write-Log "SoftPaq-Liste über Referenzversion $osVer gefunden."
+                    break
+                }
+            } catch {
+                $lastError = $_
+            }
+        }
+    }
 
     if (-not $softpaqs) {
+        if ($lastError) { throw $lastError }
         throw "Keine BIOS-Softpaqs für Plattform $platform gefunden."
     }
 
