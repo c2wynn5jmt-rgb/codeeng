@@ -111,7 +111,7 @@ function Compare-BiosVersion {
 # --- HP -----------------------------------------------------------------
 
 function Get-HPLatestBios {
-    param([string]$Model)
+    param([string]$Model, [string]$CurrentBios)
 
     if (-not (Get-Module -ListAvailable -Name HPCMSL)) {
         Write-Log 'HP CMSL-Modul nicht gefunden, installiere aus PSGallery...' -Level WARN
@@ -137,6 +137,10 @@ function Get-HPLatestBios {
     }
 
     $latest = $softpaqs[0]
+    if (-not (Compare-BiosVersion -Current $CurrentBios -Latest $latest.Version)) {
+        return $null
+    }
+
     [PSCustomObject]@{
         Version = $latest.Version
         Id      = $latest.Id
@@ -165,53 +169,48 @@ function Install-HPBios {
 }
 
 # --- Lenovo ---------------------------------------------------------------
-
-function Get-LenovoMachineType {
-    param([string]$Model)
-    if ($Model.Length -ge 4) { return $Model.Substring(0, 4) }
-    throw "Konnte Lenovo Machine Type nicht aus Modell '$Model' ableiten."
-}
+# Nutzt LSUClient (PowerShell Gallery, https://github.com/jantari/LSUClient)
+# statt eines eigenen Katalog-Parsers: fragt Lenovos offizielle
+# Update-Pakete ab und kennt pro Paket den korrekten Silent-Install-Befehl,
+# den der Hersteller selbst hinterlegt hat.
 
 function Get-LenovoLatestBios {
-    param([string]$MachineType)
+    param([string]$CurrentBios)
 
-    $catalogUrl = "https://download.lenovo.com/catalog/$MachineType.xml"
-    Write-Log "Lade Lenovo-Katalog: $catalogUrl"
+    if (-not (Get-Module -ListAvailable -Name LSUClient)) {
+        Write-Log 'LSUClient-Modul nicht gefunden, installiere aus PSGallery...' -Level WARN
+        Install-Module -Name LSUClient -Scope CurrentUser -Force -ErrorAction Stop
+    }
+    Import-Module LSUClient -ErrorAction Stop
 
-    $raw = Invoke-WebRequest -Uri $catalogUrl -UseBasicParsing -ErrorAction Stop
-    $rawPath = Join-Path $logDir "lenovo-catalog_$MachineType.xml"
-    Set-Content -Path $rawPath -Value $raw.Content
-    Write-Log "Rohkatalog gespeichert unter $rawPath (zur Kontrolle bei Parsing-Problemen)."
+    Write-Log 'Frage Lenovo-Update-Katalog über LSUClient ab (kann etwas dauern)...'
+    $updates = Get-LSUpdate -ErrorAction Stop
 
-    [xml]$catalog = $raw.Content
+    $biosUpdate = $updates | Where-Object { $_.Category -match 'BIOS' -or $_.Title -match 'BIOS' } |
+        Select-Object -First 1
 
-    $biosPackage = $catalog.SelectNodes('//Package') | Where-Object {
-        $_.Category -match 'BIOS'
-    } | Select-Object -First 1
-
-    if (-not $biosPackage) {
-        throw "Kein BIOS-Paket im Lenovo-Katalog für $MachineType gefunden. Rohkatalog prüfen: $rawPath"
+    if (-not $biosUpdate) {
+        Write-Log 'Kein anwendbares BIOS-Update laut LSUClient gefunden (vermutlich bereits aktuell).'
+        return $null
     }
 
     [PSCustomObject]@{
-        Version    = $biosPackage.Version
-        Title      = $biosPackage.Title.InnerText
-        Location   = $biosPackage.Location
-        SilentArgs = $biosPackage.ExtractCommand
+        Version = $biosUpdate.Version
+        Package = $biosUpdate
     }
 }
 
 function Install-LenovoBios {
-    param($PackageInfo)
+    param($LatestInfo)
 
-    $downloadPath = Join-Path $env:TEMP (Split-Path -Leaf $PackageInfo.Location)
-    Write-Log "Lade $($PackageInfo.Title) (Version $($PackageInfo.Version)) herunter..."
-    Invoke-WebRequest -Uri $PackageInfo.Location -OutFile $downloadPath -UseBasicParsing -ErrorAction Stop
+    Write-Log "Installiere Lenovo-Paket $($LatestInfo.Package.ID) ($($LatestInfo.Package.Title), Version $($LatestInfo.Package.Version)) über LSUClient..."
+    $result = Install-LSUpdate -Package $LatestInfo.Package -ErrorAction Stop
+    Write-Log "LSUClient-Ergebnis: $($result | Out-String)"
 
-    Write-Log 'Hinweis: Silent-Install-Args aus Katalog nicht verifiziert, siehe README.' -Level WARN
-    $proc = Start-Process -FilePath $downloadPath -ArgumentList '/VERYSILENT' -Wait -PassThru
-    Write-Log "Installer beendet mit Exit-Code $($proc.ExitCode)."
-    return $proc.ExitCode
+    if ($result.Success -eq $false) {
+        throw "LSUClient meldet Fehler: $($result.FailureReason)"
+    }
+    return 0
 }
 
 # --- Hauptablauf ------------------------------------------------------------
@@ -223,22 +222,21 @@ try {
     Write-Log "Installierte BIOS-Version: $($sysInfo.CurrentBios)"
 
     $latest = switch -Wildcard ($sysInfo.Manufacturer) {
-        '*HP*'       { Get-HPLatestBios -Model $sysInfo.Model }
-        '*Hewlett*'  { Get-HPLatestBios -Model $sysInfo.Model }
-        '*Lenovo*'   { Get-LenovoLatestBios -MachineType (Get-LenovoMachineType -Model $sysInfo.Model) }
+        '*HP*'       { Get-HPLatestBios -Model $sysInfo.Model -CurrentBios $sysInfo.CurrentBios }
+        '*Hewlett*'  { Get-HPLatestBios -Model $sysInfo.Model -CurrentBios $sysInfo.CurrentBios }
+        '*Lenovo*'   { Get-LenovoLatestBios -CurrentBios $sysInfo.CurrentBios }
         default {
             Write-Log "Nicht unterstützter Hersteller: $($sysInfo.Manufacturer)" -Level ERROR
             exit 1
         }
     }
 
-    Write-Log "Neueste verfügbare BIOS-Version: $($latest.Version)"
-
-    $updateAvailable = Compare-BiosVersion -Current $sysInfo.CurrentBios -Latest $latest.Version
-    if (-not $updateAvailable) {
+    if (-not $latest) {
         Write-Log 'BIOS ist bereits aktuell.'
         exit 0
     }
+
+    Write-Log "Neueste verfügbare BIOS-Version: $($latest.Version)"
 
     if ($DetectOnly) {
         Write-Log 'DetectOnly gesetzt, Installation wird übersprungen.'
@@ -271,7 +269,7 @@ try {
     $exitCode = switch -Wildcard ($sysInfo.Manufacturer) {
         '*HP*'      { Install-HPBios -SoftpaqInfo $latest }
         '*Hewlett*' { Install-HPBios -SoftpaqInfo $latest }
-        '*Lenovo*'  { Install-LenovoBios -PackageInfo $latest }
+        '*Lenovo*'  { Install-LenovoBios -LatestInfo $latest }
     }
 
     Write-Log "BIOS-Update-Prozess abgeschlossen, Exit-Code: $exitCode"

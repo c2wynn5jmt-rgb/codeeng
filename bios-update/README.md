@@ -8,21 +8,23 @@ das Update.
 ## ⚠️ Vor dem produktiven Einsatz unbedingt lesen
 
 Dieses Skript wurde auf einem Mac ohne Windows/HP/Lenovo-Hardware geschrieben
-und **noch nicht auf echter Hardware getestet**. Zwei Stellen sind bewusst
-mit Unsicherheit markiert (Log-Warnungen im Skript), weil sie je nach Modell
-und Software-Version abweichen können:
+und ist **noch nicht vollständig auf echter Hardware getestet**. Erkennung
+(Modell, installierte Version) wurde bereits erfolgreich auf einem Lenovo
+Testgerät verifiziert. Eine Stelle ist bewusst mit Unsicherheit markiert
+(Log-Warnung im Skript):
 
-1. **HP Silent-Install-Switch** (`Install-HPBios`): Nutzt bevorzugt das
-   CMSL-native `Install-HPSoftpaq`, falls verfügbar. Fällt sonst auf
-   `<installer>.exe /s` zurück — das ist der übliche Silent-Switch für
-   HP-Softpaqs, aber nicht für jedes Modell verifiziert.
-2. **Lenovo-Katalog-Parsing** (`Get-LenovoLatestBios`): Lädt
-   `https://download.lenovo.com/catalog/<MachineType>.xml` und sucht ein
-   `Package`-Element mit `Category` enthält "BIOS". Das Katalogschema kann
-   je nach Modell leicht variieren. Der Rohkatalog wird bei jedem Lauf unter
-   `logs/lenovo-catalog_<MachineType>.xml` gespeichert — bei Fehlern dort
-   nachsehen und `Get-LenovoLatestBios` ggf. anpassen (Property-Namen wie
-   `Version`, `Location`, `ExtractCommand` prüfen).
+- **HP Silent-Install-Switch** (`Install-HPBios`): Nutzt bevorzugt das
+  CMSL-native `Install-HPSoftpaq`, falls verfügbar. Fällt sonst auf
+  `<installer>.exe /s` zurück — das ist der übliche Silent-Switch für
+  HP-Softpaqs, aber nicht für jedes Modell verifiziert.
+
+Der Lenovo-Pfad nutzt seit der zweiten Version das Community-Modul
+[LSUClient](https://github.com/jantari/LSUClient) statt eines eigenen
+Katalog-Parsers (der erste Versuch, Lenovos Katalog-XML direkt zu laden und
+zu parsen, scheiterte auf dem Testgerät mit einem 404 — der geratene
+Endpunkt existiert so nicht mehr). LSUClient fragt Lenovos offizielle
+Update-Metadaten ab und kennt pro Paket den vom Hersteller hinterlegten,
+korrekten Silent-Install-Befehl — deutlich zuverlässiger als eigenes Raten.
 
 **Empfohlenes Vorgehen:**
 
@@ -86,8 +88,9 @@ die `.bat`-Dateien zu nutzen (siehe Warnung oben im Dokument).
    (`Win32_ComputerSystem`, `Win32_BIOS`).
 2. Je nach Hersteller neueste verfügbare Version ermitteln:
    - **HP**: über HP CMSL (`Get-HPDeviceDetails`, `Get-SoftpaqList -Category BIOS`)
-   - **Lenovo**: über den öffentlichen Lenovo-XML-Katalog für den Machine
-     Type (erste 4 Zeichen des Modellnamens)
+   - **Lenovo**: über LSUClient (`Get-LSUpdate`), erkennt Modell und
+     Windows-Version automatisch, keine manuelle Machine-Type-Ermittlung
+     nötig
 3. Versionen vergleichen. Kein Update nötig → Skript endet.
 4. Prüfen, ob das Gerät am Netzteil hängt (BIOS-Update im Akkubetrieb wird
    blockiert).
