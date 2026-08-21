@@ -12,6 +12,10 @@ Zwei Frontends, dieselbe Logik (`BiosUpdateCore.ps1`):
   Fortschrittsanzeige und Log-Bereich. Für den täglichen Gebrauch gedacht,
   auch für Kolleg:innen ohne PowerShell-Erfahrung (siehe Abschnitt GUI).
 
+Für die Weitergabe an Kolleg:innen lässt sich die GUI zu einer einzelnen
+**`BIOS-Update.exe`** (mit eigenem Icon) kompilieren — siehe Abschnitt
+[Eigenständige .exe bauen](#eigenständige-exe-bauen).
+
 ## ⚠️ Vor dem produktiven Einsatz unbedingt lesen
 
 Dieses Skript wurde auf einem Mac ohne Windows/HP/Lenovo-Hardware geschrieben
@@ -158,6 +162,39 @@ Bedienoberfläche und die Runspace-basierte asynchrone Ausführung selbst.
 Bei seltsamem Verhalten (Buttons reagieren nicht, Log aktualisiert sich
 nicht) zuerst `Update-Bios.ps1` direkt in der Konsole zum Vergleich laufen
 lassen.
+
+## Eigenständige .exe bauen
+
+Für die Weitergabe reicht eine einzelne Datei, kein Ordner mit mehreren
+`.ps1`/`.bat`-Dateien mehr. `Build-Exe.ps1` fasst `Update-Bios-GUI.ps1` und
+`BiosUpdateCore.ps1` zusammen (Core-Code wird als Text eingebettet, nicht
+als separate Datei danebengelegt) und kompiliert sie mit
+[ps2exe](https://github.com/MScholtes/PS2EXE) zu `BIOS-Update.exe`, inkl.
+eigenem Icon (`bios-update.ico`).
+
+**Wichtig: Das muss einmalig auf einem Windows-Rechner mit Internetzugang
+laufen** — der Build selbst wurde beim Schreiben dieses Tools nicht
+ausgeführt (keine Windows-Umgebung verfügbar), nur der PowerShell-Code
+dahinter geprüft (Klammern-/Encoding-Konsistenz). Bitte einmal testen,
+bevor die exe verteilt wird.
+
+```powershell
+.\Build-Exe.ps1
+```
+
+Installiert bei Bedarf automatisch das `ps2exe`-Modul aus der PowerShell
+Gallery, erzeugt `BIOS-Update.exe` im selben Ordner und räumt die
+Zwischen-Datei (`Update-Bios-GUI.Combined.ps1`) danach wieder auf.
+
+**Danach reicht `BIOS-Update.exe` allein** — kein `BiosUpdateCore.ps1`
+mehr nötig daneben, keine `.bat`-Datei, und auch das Execution-Policy-Thema
+von weiter oben entfällt komplett: kompilierte `.exe`-Dateien unterliegen
+nicht der PowerShell-Skript-Ausführungsrichtlinie. Per Doppelklick fragt
+Windows direkt per UAC nach Administratorrechten (eingebaut über
+`-requireAdmin`), ganz ohne den bisherigen `.bat`-Umweg.
+
+`Update-Bios.ps1` (Kommandozeile) bleibt weiterhin auf `BiosUpdateCore.ps1`
+als separate Datei angewiesen — nur die GUI wird zur eigenständigen exe.
 
 ## Ablauf
 

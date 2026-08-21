@@ -39,7 +39,20 @@ $logDir = Join-Path $PSScriptRoot 'logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 $logFile = Join-Path $logDir "bios-update-gui_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
-. $corePath
+# Lädt BiosUpdateCore.ps1 als Text statt per Datei-Dot-Sourcing, und über
+# ein Scriptblock statt per "iex": funktioniert unverändert sowohl im
+# Entwicklungsmodus (Core liegt als eigene Datei neben diesem Skript) als
+# auch als von Build-Exe.ps1 zusammengeführte/kompilierte Einzel-exe, wo
+# $script:EmbeddedCoreScriptText den Code bereits eingebettet mitbringt und
+# keine externe .ps1-Datei mehr existiert.
+if (Test-Path $corePath) {
+    $coreScriptText = Get-Content -Path $corePath -Raw
+} elseif ($script:EmbeddedCoreScriptText) {
+    $coreScriptText = $script:EmbeddedCoreScriptText
+} else {
+    throw 'BiosUpdateCore.ps1 nicht gefunden und kein eingebetteter Code vorhanden.'
+}
+. ([scriptblock]::Create($coreScriptText))
 
 $script:sysInfo = $null
 $script:latest = $null
@@ -84,11 +97,11 @@ $script:asyncRunspace.Open()
 $initPs = [powershell]::Create()
 $initPs.Runspace = $script:asyncRunspace
 [void]$initPs.AddScript({
-    param($LogFile, $LogDir, $CorePath)
+    param($LogFile, $LogDir, $CoreScriptText)
     $logFile = $LogFile
     $logDir = $LogDir
-    . $CorePath
-}).AddParameter('LogFile', $logFile).AddParameter('LogDir', $logDir).AddParameter('CorePath', $corePath)
+    . ([scriptblock]::Create($CoreScriptText))
+}).AddParameter('LogFile', $logFile).AddParameter('LogDir', $logDir).AddParameter('CoreScriptText', $coreScriptText)
 $initPs.Invoke() | Out-Null
 $initPs.Dispose()
 
