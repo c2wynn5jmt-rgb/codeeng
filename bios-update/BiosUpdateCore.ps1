@@ -165,13 +165,33 @@ function Get-HPLatestBios {
     }
     Import-Module HPCMSL -ErrorAction Stop
 
+    # Get-HPDeviceDetails' genaue Property-Namen sind von HP nicht verlässlich
+    # dokumentiert (developers.hp.com blockierte automatisierte Zugriffe beim
+    # Schreiben dieses Tools) und wichen auf echter Hardware bereits von der
+    # ursprünglich angenommenen 'Base Board Product'/'Platform' ab (verifiziert
+    # 2026-08-22, HP ENVY x360). Deshalb mehrere bekannte Namensvarianten
+    # probieren und zusätzlich über WMI/Win32_BaseBoard nachfassen - das ist
+    # der von HPCMSL unabhängige Standardweg, den auch HPs eigene Doku und
+    # Community-Skripte für die 4-stellige Plattform-/Baseboard-ID nutzen.
     $device = Get-HPDeviceDetails
-    $platform = $device.'Base Board Product'
-    if (-not $platform -and $device.PSObject.Properties.Name -contains 'Platform') {
-        $platform = $device.Platform
+    $platform = $null
+    foreach ($prop in 'Base Board Product', 'Platform', 'Product ID', 'SystemID', 'BaseBoardProduct') {
+        if ($device.PSObject.Properties.Name -contains $prop -and $device.$prop) {
+            $platform = $device.$prop
+            break
+        }
     }
     if (-not $platform) {
-        throw "Konnte HP-Plattform-ID nicht ermitteln. 'Get-HPDeviceDetails' auf diesem Gerät manuell prüfen."
+        try {
+            $platform = (Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction Stop).Product
+        } catch {
+            $platform = $null
+        }
+    }
+    if (-not $platform) {
+        $props = ($device | Format-List * | Out-String).Trim()
+        Write-Log "Get-HPDeviceDetails-Ausgabe zur Diagnose:`n$props" -Level WARN
+        throw "Konnte HP-Plattform-ID nicht ermitteln. Siehe Log-Zeile direkt darüber für die rohe Get-HPDeviceDetails-Ausgabe."
     }
     Write-Log "HP-Plattform-ID: $platform"
 

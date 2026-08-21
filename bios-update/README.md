@@ -60,6 +60,15 @@ Prozess verfügbar ist — falls nicht, wird HPCMSL stattdessen in einem
 frischen `powershell.exe`-Kindprozess installiert, der PowerShellGet neu von
 der Platte lädt (verifiziert 2026-08-22).
 
+**Dritter Fund, selbes Gerät:** Nach erfolgreicher HPCMSL-Installation brach
+die Plattform-Erkennung ab — `Get-HPDeviceDetails` liefert auf dieser
+Hardware weder `Base Board Product` noch `Platform` (beides ungetestet
+geraten, da HPs Primärdoku beim Schreiben nicht zugänglich war). Behoben,
+indem mehrere bekannte Property-Namen probiert werden und zusätzlich über
+`Win32_BaseBoard` (WMI, unabhängig von HPCMSL) nachgefasst wird; schlägt
+alles fehl, wird die volle `Get-HPDeviceDetails`-Ausgabe ins Log geschrieben
+statt nur ein Fehler ohne Kontext.
+
 Der Lenovo-Pfad nutzt seit der zweiten Version das Community-Modul
 [LSUClient](https://github.com/jantari/LSUClient) statt eines eigenen
 Katalog-Parsers (der erste Versuch, Lenovos Katalog-XML direkt zu laden und
