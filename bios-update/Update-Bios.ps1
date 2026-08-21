@@ -184,7 +184,19 @@ function Get-LenovoLatestBios {
     Import-Module LSUClient -ErrorAction Stop
 
     Write-Log 'Frage Lenovo-Update-Katalog über LSUClient ab (kann etwas dauern)...'
-    $updates = Get-LSUpdate -ErrorAction Stop
+
+    # LSUClient faengt Download-Fehler bei einzelnen (fuer uns irrelevanten)
+    # Paketen selbst ab und ueberspringt sie normalerweise - das funktioniert
+    # aber nur, wenn $ErrorActionPreference nicht global auf 'Stop' steht
+    # (sonst werden intern abgefangene, unkritische Fehler zu Abbruechen).
+    # Deshalb hier bewusst lockern und danach wieder zuruecksetzen.
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $updates = Get-LSUpdate -ErrorAction Continue
+    } finally {
+        $ErrorActionPreference = $previousEap
+    }
 
     $biosUpdate = $updates | Where-Object { $_.Category -match 'BIOS' -or $_.Title -match 'BIOS' } |
         Select-Object -First 1

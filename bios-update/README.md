@@ -26,6 +26,17 @@ Endpunkt existiert so nicht mehr). LSUClient fragt Lenovos offizielle
 Update-Metadaten ab und kennt pro Paket den vom Hersteller hinterlegten,
 korrekten Silent-Install-Befehl — deutlich zuverlässiger als eigenes Raten.
 
+**Getestet und gefixt (2026-08-21):** Auf dem Lenovo-Testgerät brach
+`Get-LSUpdate` zunächst mit einem 404 bei einem völlig unabhängigen,
+nicht-BIOS-Paket ab (defekte Datei auf Lenovos Server, nicht unser
+Problem) — das eigentliche BIOS-Paket war zu diesem Zeitpunkt bereits
+korrekt als "nicht nötig" erkannt. Ursache war, dass unser globales
+`$ErrorActionPreference = 'Stop'` in die LSUClient-Funktionen
+"durchsickerte" und deren eigene, eigentlich robuste Fehlerbehandlung
+(einzelnes Paket überspringen) in einen harten Abbruch verwandelte.
+Behoben, indem `$ErrorActionPreference` nur rund um den `Get-LSUpdate`-
+Aufruf gelockert wird (`Get-LenovoLatestBios`).
+
 **Empfohlenes Vorgehen:**
 
 ```powershell
