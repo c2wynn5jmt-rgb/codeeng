@@ -187,17 +187,33 @@ Admin) oder direkt per PowerShell wie oben.
 
 - Beim Öffnen wird automatisch einmal geprüft (Hersteller, Modell,
   installierte und neueste Version erscheinen oben im Fenster).
-- **Prüfen** stößt die Erkennung erneut an.
-- **Installieren** ist nur aktiv, wenn ein Update gefunden wurde. Fragt vor
-  dem Start noch einmal per Dialog nach, prüft Netzteil-Anschluss, setzt
-  BitLocker aus und installiert dann im Hintergrund — das Fenster bleibt
-  währenddessen bedienbar, der Log-Bereich unten füllt sich live.
+- **Prüfen** stößt die Erkennung erneut an und füllt die Liste
+  **"Verfügbare Versionen"** mit den letzten 5 Katalog-Einträgen
+  (HP: aus `Get-SoftpaqList`, Lenovo: aus `Get-LSUpdate` - dort i. d. R. nur
+  1 Eintrag, da Lenovos Katalog meist nur die aktuell anwendbare Version
+  führt, keine Historie). Oberster Eintrag = neueste verfügbare Version.
+- **Installieren** installiert die in der Liste **ausgewählte** Version
+  (Standard: die oberste/neueste, wie bisher) und ist aktiv, sobald
+  mindestens ein Katalog-Eintrag vorliegt - auch wenn das BIOS laut
+  Erkennung schon aktuell ist, damit gezielt eine **ältere Version
+  installiert werden kann (Rollback)**. Fragt vor dem Start noch einmal per
+  Dialog nach (mit Hinweis, falls keine neueste Version gewählt wurde),
+  prüft Netzteil-Anschluss, setzt BitLocker aus und installiert dann im
+  Hintergrund — das Fenster bleibt währenddessen bedienbar, der Log-Bereich
+  unten füllt sich live.
+  **Wichtig bei HP:** `Get-HPBIOSUpdates -Flash` installiert immer HPs
+  eigene empfohlene (= neueste) Version, unabhängig vom übergebenen
+  Softpaq - für eine gezielt ausgewählte ältere Version schaltet
+  `Install-HPBios` deshalb automatisch auf den manuellen
+  Softpaq-Download/Install-Weg um, der eine bestimmte Id ansteuern kann.
+  Bei Lenovo (LSUClient) ist das kein Thema, `Install-LSUpdate` installiert
+  ohnehin immer das übergebene Paketobjekt gezielt.
 - Erkennung und Installation laufen asynchron in einer **einzigen,
   dauerhaft offenen PowerShell-Runspace** (nicht `Start-Job`/separater
   Prozess), damit das Fenster nicht einfriert. Der Vorteil gegenüber
   `Start-Job`: Das Ergebnis von "Prüfen" (inkl. z. B. des
-  LSUClient-Paketobjekts für Lenovo) bleibt als `$global:lastLatest` *in
-  dieser Runspace* im Speicher und wird von "Installieren" direkt
+  LSUClient-Paketobjekts für Lenovo) bleibt als `$global:lastAvailableVersions`
+  *in dieser Runspace* im Speicher und wird von "Installieren" direkt
   weiterverwendet — ohne den langsamen Update-Katalog ein zweites Mal
   komplett abzufragen. Bei `Start-Job` hätte der Prozesswechsel dieses
   Objekt auf reine Daten reduziert und seine Typinformation verloren,
@@ -225,6 +241,17 @@ Bedienoberfläche und die Runspace-basierte asynchrone Ausführung selbst.
 Bei seltsamem Verhalten (Buttons reagieren nicht, Log aktualisiert sich
 nicht) zuerst `Update-Bios.ps1` direkt in der Konsole zum Vergleich laufen
 lassen.
+
+**Versionsauswahl/Rollback (2026-08-22) noch nicht auf echter Hardware
+getestet:** Die Liste "Verfügbare Versionen" plus gezielte Installation
+einer nicht-neuesten Version wurde am Schreibtisch entworfen (Mac, keine
+Windows/HP/Lenovo-Hardware) und nur auf Klammern-/Syntax-Konsistenz
+geprüft, kein Live-Test. Insbesondere unklar: ob `Get-Softpaq -Number
+<Id>` für eine ältere, nicht mehr "aktuellste" HP-Softpaq-Id noch
+funktioniert (HP könnte alte Downloads aus dem aktiven Katalog entfernen),
+und ob das GUI-Layout mit dem neuen Listenfeld bei allen Fenstergrößen
+sauber aussieht. Vor produktivem Rollback-Einsatz auf einem Testgerät
+prüfen.
 
 ## Eigenständige .exe bauen
 

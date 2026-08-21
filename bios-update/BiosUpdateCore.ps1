@@ -243,20 +243,27 @@ function Get-HPLatestBios {
         throw "Keine BIOS-Softpaqs für Plattform $platform gefunden."
     }
 
-    $latest = $softpaqs[0]
-    if (-not (Compare-BiosVersion -Current $CurrentBios -Latest $latest.Version)) {
-        return $null
+    # Letzte 5 Katalog-Versionen für die Versionsauswahl in der GUI (auch
+    # ältere als die installierte - für gezielten Rollback), unabhängig
+    # davon, ob überhaupt ein Update ansteht.
+    $availableVersions = @($softpaqs | Select-Object -First 5 | ForEach-Object {
+        [PSCustomObject]@{ Version = $_.Version; Id = $_.Id; Name = $_.Name }
+    })
+
+    $top = $softpaqs[0]
+    $latestUpdate = $null
+    if (Compare-BiosVersion -Current $CurrentBios -Latest $top.Version) {
+        $latestUpdate = [PSCustomObject]@{ Version = $top.Version; Id = $top.Id; Name = $top.Name }
     }
 
     [PSCustomObject]@{
-        Version = $latest.Version
-        Id      = $latest.Id
-        Name    = $latest.Name
+        Latest            = $latestUpdate
+        AvailableVersions = $availableVersions
     }
 }
 
 function Install-HPBios {
-    param($SoftpaqInfo)
+    param($SoftpaqInfo, [bool]$IsLatestRecommended = $true)
 
     # Bevorzugt Get-HPBIOSUpdates -Flash: HPs eigenes, für genau diesen
     # Workflow gedachtes Kombi-Cmdlet (Erkennung + Flash + BitLocker-Suspend
@@ -264,14 +271,24 @@ function Install-HPBios {
     # empfohlene Weg, der die manuelle Softpaq-Download/Install-Kette
     # ablöst. Primäre HP-Doku (developers.hp.com) war beim Schreiben nicht
     # erreichbar (403) - basiert auf Sekundärquellen, siehe README.
-    if (Get-Command -Name Get-HPBIOSUpdates -ErrorAction SilentlyContinue) {
+    # WICHTIG: Get-HPBIOSUpdates -Flash installiert immer HPs eigene
+    # empfohlene (= neueste) Version, unabhängig davon, welches SoftpaqInfo
+    # übergeben wird. Für eine gezielt ausgewählte, NICHT-neueste Version
+    # (Rollback über die Versionsliste in der GUI) funktioniert das nicht -
+    # dafür ist $IsLatestRecommended = $false und es geht direkt in den
+    # manuellen Softpaq-Weg weiter unten, der eine bestimmte Id ansteuert.
+    if ($IsLatestRecommended -and (Get-Command -Name Get-HPBIOSUpdates -ErrorAction SilentlyContinue)) {
         Write-Log "Flashe BIOS über Get-HPBIOSUpdates -Flash (Ziel-Version: $($SoftpaqInfo.Version))..."
         Get-HPBIOSUpdates -Flash -Bitlocker suspend -Force -ErrorAction Stop
         Write-Log 'BIOS-Flash angestoßen. Die neue Version wird erst nach einem Neustart aktiv (wird von diesem Tool danach eingeleitet).'
         return 0
     }
 
-    Write-Log 'Get-HPBIOSUpdates nicht verfügbar (ältere HPCMSL-Version?), falle zurück auf manuellen Softpaq-Download...' -Level WARN
+    if ($IsLatestRecommended) {
+        Write-Log 'Get-HPBIOSUpdates nicht verfügbar (ältere HPCMSL-Version?), falle zurück auf manuellen Softpaq-Download...' -Level WARN
+    } else {
+        Write-Log "Gezielt ausgewählte Version $($SoftpaqInfo.Version) (nicht die von HP empfohlene neueste) - installiere über den manuellen Softpaq-Weg, da Get-HPBIOSUpdates -Flash keine bestimmte Version ansteuern kann." -Level WARN
+    }
     $downloadPath = Join-Path $env:TEMP "$($SoftpaqInfo.Id).exe"
     Write-Log "Lade $($SoftpaqInfo.Id) ($($SoftpaqInfo.Name), Version $($SoftpaqInfo.Version)) herunter..."
     Get-Softpaq -Number $SoftpaqInfo.Id -SaveAs $downloadPath -ErrorAction Stop
@@ -318,17 +335,32 @@ function Get-LenovoLatestBios {
         Write-Log "$($lsuErrors.Count) Lenovo-Paket(e) konnten nicht abgerufen werden (z.B. defekte Datei beim Hersteller) und wurden übersprungen." -Level WARN
     }
 
-    $biosUpdate = $updates | Where-Object { $_.Category -match 'BIOS' -or $_.Title -match 'BIOS' } |
-        Select-Object -First 1
+    # LSUClient liefert pro Modell i. d. R. nur das aktuell anwendbare
+    # BIOS-Paket, keine historischen Alt-Versionen - anders als bei HPs
+    # Softpaq-Katalog ist eine "letzte 5"-Auswahl hier meist nur 1 Eintrag
+    # lang. Code trotzdem allgemein für mehrere Treffer gehalten, falls
+    # LSUClient für ein Modell doch mehrere BIOS-Pakete listet.
+    $biosUpdates = @($updates | Where-Object { $_.Category -match 'BIOS' -or $_.Title -match 'BIOS' } |
+        Select-Object -First 5)
 
-    if (-not $biosUpdate) {
+    if ($biosUpdates.Count -eq 0) {
         Write-Log 'Kein anwendbares BIOS-Update laut LSUClient gefunden (vermutlich bereits aktuell).'
-        return $null
+        return [PSCustomObject]@{ Latest = $null; AvailableVersions = @() }
+    }
+
+    $availableVersions = @($biosUpdates | ForEach-Object {
+        [PSCustomObject]@{ Version = $_.Version; Package = $_ }
+    })
+
+    $top = $biosUpdates[0]
+    $latestUpdate = $null
+    if (Compare-BiosVersion -Current $CurrentBios -Latest $top.Version) {
+        $latestUpdate = [PSCustomObject]@{ Version = $top.Version; Package = $top }
     }
 
     [PSCustomObject]@{
-        Version = $biosUpdate.Version
-        Package = $biosUpdate
+        Latest            = $latestUpdate
+        AvailableVersions = $availableVersions
     }
 }
 
@@ -358,10 +390,10 @@ function Get-LatestBiosForVendor {
 }
 
 function Install-BiosForVendor {
-    param($SysInfo, $LatestInfo)
+    param($SysInfo, $LatestInfo, [bool]$IsLatestRecommended = $true)
     switch -Wildcard ($SysInfo.Manufacturer) {
-        '*HP*'      { return Install-HPBios -SoftpaqInfo $LatestInfo }
-        '*Hewlett*' { return Install-HPBios -SoftpaqInfo $LatestInfo }
+        '*HP*'      { return Install-HPBios -SoftpaqInfo $LatestInfo -IsLatestRecommended $IsLatestRecommended }
+        '*Hewlett*' { return Install-HPBios -SoftpaqInfo $LatestInfo -IsLatestRecommended $IsLatestRecommended }
         '*Lenovo*'  { return Install-LenovoBios -LatestInfo $LatestInfo }
         default     { throw "Nicht unterstützter Hersteller: $($SysInfo.Manufacturer)" }
     }

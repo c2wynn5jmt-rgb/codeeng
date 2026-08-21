@@ -68,6 +68,7 @@ if (Test-Path $corePath) {
 
 $script:sysInfo = $null
 $script:latest = $null
+$script:availableVersions = @()
 $script:lastCheckedAt = $null
 $script:currentPs = $null
 $script:currentAsyncResult = $null
@@ -121,8 +122,8 @@ $initPs.Dispose()
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'BIOS-Update'
-$form.Size = New-Object System.Drawing.Size(700, 640)
-$form.MinimumSize = New-Object System.Drawing.Size(620, 480)
+$form.Size = New-Object System.Drawing.Size(700, 750)
+$form.MinimumSize = New-Object System.Drawing.Size(620, 590)
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = $Theme.WindowBg
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9.5)
@@ -240,6 +241,22 @@ $infoTable.Controls.Add($lblLatest, 1, 3)
 
 $infoCard.Controls.Add($infoTable)
 
+# Versionsauswahl ---
+# Zeigt die letzten 5 bei Hersteller/Katalog verfügbaren Versionen (nicht
+# nur die neueste) - "Installieren" installiert die hier ausgewählte
+# Version, per Default die oberste/neueste. Ermöglicht gezielten Rollback
+# auf eine ältere Version, siehe Install-HPBios/$IsLatestRecommended.
+
+$lblVersions = New-CaptionLabel 'Verfügbare Versionen (letzte 5, oberste = neueste)'
+$lblVersions.Location = New-Object System.Drawing.Point(20, 250)
+
+$listVersions = New-Object System.Windows.Forms.ListBox
+$listVersions.Location = New-Object System.Drawing.Point(20, 270)
+$listVersions.Size = New-Object System.Drawing.Size(640, 82)
+$listVersions.Anchor = 'Top,Left,Right'
+$listVersions.Font = New-Object System.Drawing.Font('Consolas', 9)
+$listVersions.IntegerHeight = $false
+
 # Buttons ---
 
 function Set-ButtonStyle {
@@ -253,14 +270,14 @@ function Set-ButtonStyle {
 
 $btnCheck = New-Object System.Windows.Forms.Button
 $btnCheck.Text = 'Prüfen'
-$btnCheck.Location = New-Object System.Drawing.Point(20, 254)
+$btnCheck.Location = New-Object System.Drawing.Point(20, 364)
 $btnCheck.Size = New-Object System.Drawing.Size(140, 38)
 $btnCheck.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
 Set-ButtonStyle -Button $btnCheck -BackColor $Theme.Accent
 
 $btnInstall = New-Object System.Windows.Forms.Button
 $btnInstall.Text = 'Installieren'
-$btnInstall.Location = New-Object System.Drawing.Point(172, 254)
+$btnInstall.Location = New-Object System.Drawing.Point(172, 364)
 $btnInstall.Size = New-Object System.Drawing.Size(140, 38)
 $btnInstall.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
 $btnInstall.Enabled = $false
@@ -270,7 +287,7 @@ Set-ButtonStyle -Button $btnInstall -BackColor $Theme.ButtonDisabled -ForeColor 
 
 $progressBar = New-Object System.Windows.Forms.ProgressBar
 $progressBar.Style = 'Marquee'
-$progressBar.Location = New-Object System.Drawing.Point(20, 308)
+$progressBar.Location = New-Object System.Drawing.Point(20, 418)
 $progressBar.Size = New-Object System.Drawing.Size(640, 6)
 $progressBar.Anchor = 'Top,Left,Right'
 $progressBar.Visible = $false
@@ -279,7 +296,7 @@ $lblStatus = New-Object System.Windows.Forms.Label
 $lblStatus.Text = 'Bereit.'
 $lblStatus.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $lblStatus.ForeColor = $Theme.TextMuted
-$lblStatus.Location = New-Object System.Drawing.Point(20, 320)
+$lblStatus.Location = New-Object System.Drawing.Point(20, 430)
 $lblStatus.Size = New-Object System.Drawing.Size(640, 20)
 $lblStatus.Anchor = 'Top,Left,Right'
 
@@ -292,12 +309,13 @@ $txtLog.ScrollBars = 'Vertical'
 $txtLog.Font = New-Object System.Drawing.Font('Consolas', 9)
 $txtLog.BackColor = $Theme.LogBg
 $txtLog.ForeColor = $Theme.LogInfo
-$txtLog.Location = New-Object System.Drawing.Point(20, 350)
+$txtLog.Location = New-Object System.Drawing.Point(20, 460)
 $txtLog.Size = New-Object System.Drawing.Size(640, 246)
 $txtLog.Anchor = 'Top,Bottom,Left,Right'
 
 $form.Controls.AddRange(@(
     $infoCard,
+    $lblVersions, $listVersions,
     $btnCheck, $btnInstall,
     $progressBar, $lblStatus, $txtLog,
     $headerPanel
@@ -331,7 +349,8 @@ function Update-LogBox {
 function Set-BusyState {
     param([bool]$Busy, [string]$Status)
     $btnCheck.Enabled = -not $Busy
-    $btnInstall.Enabled = (-not $Busy) -and ($null -ne $script:latest)
+    $listVersions.Enabled = -not $Busy
+    $btnInstall.Enabled = (-not $Busy) -and ($script:availableVersions.Count -gt 0)
     if ($btnInstall.Enabled) {
         Set-ButtonStyle -Button $btnInstall -BackColor $Theme.Warning
     } else {
@@ -339,6 +358,21 @@ function Set-BusyState {
     }
     $progressBar.Visible = $Busy
     $lblStatus.Text = $Status
+}
+
+# HP-Einträge haben Name, Lenovo-Einträge Package.Title - beides normalisiert
+# in eine Zeile für die Versionsliste.
+function Format-VersionListItem {
+    param($Version, [bool]$IsTop)
+    $name = $null
+    if ($Version.PSObject.Properties.Name -contains 'Name' -and $Version.Name) {
+        $name = $Version.Name
+    } elseif ($Version.PSObject.Properties.Name -contains 'Package' -and $Version.Package.Title) {
+        $name = $Version.Package.Title
+    }
+    $text = if ($name) { "$($Version.Version)   $name" } else { "$($Version.Version)" }
+    if ($IsTop) { $text += '   (neueste verfügbare)' }
+    return $text
 }
 
 $timer = New-Object System.Windows.Forms.Timer
@@ -368,10 +402,15 @@ $timer.Add_Tick({
 })
 
 function Invoke-AsyncOnRunspace {
-    param([scriptblock]$ScriptBlock, [scriptblock]$OnCompleted)
+    param([scriptblock]$ScriptBlock, [scriptblock]$OnCompleted, [hashtable]$Parameters)
     $ps = [powershell]::Create()
     $ps.Runspace = $script:asyncRunspace
     [void]$ps.AddScript($ScriptBlock)
+    if ($Parameters) {
+        foreach ($key in $Parameters.Keys) {
+            [void]$ps.AddParameter($key, $Parameters[$key])
+        }
+    }
     $script:currentPs = $ps
     $script:onAsyncCompleted = $OnCompleted
     $script:currentAsyncResult = $ps.BeginInvoke()
@@ -384,14 +423,15 @@ function Invoke-AsyncOnRunspace {
 # "Installieren" später ohne erneute Katalog-Abfrage darauf zugreifen kann.
 
 $checkScript = {
-    $out = [ordered]@{ SysInfo = $null; Latest = $null; ErrorMessage = $null }
+    $out = [ordered]@{ SysInfo = $null; Latest = $null; AvailableVersions = @(); ErrorMessage = $null }
     try {
         $sysInfo = Get-SystemInfo
-        $latest = Get-LatestBiosForVendor -SysInfo $sysInfo
+        $latestInfo = Get-LatestBiosForVendor -SysInfo $sysInfo
         $global:lastSysInfo = $sysInfo
-        $global:lastLatest = $latest
+        $global:lastAvailableVersions = $latestInfo.AvailableVersions
         $out.SysInfo = $sysInfo
-        $out.Latest = $latest
+        $out.Latest = $latestInfo.Latest
+        $out.AvailableVersions = $latestInfo.AvailableVersions
     } catch {
         $out.ErrorMessage = $_.Exception.Message
     }
@@ -402,6 +442,7 @@ $btnCheck.Add_Click({
     Set-BusyState -Busy $true -Status 'Ermittle Modell und BIOS-Versionen...'
     $script:lastLogContent = $null
     $txtLog.Clear()
+    $listVersions.Items.Clear()
     $lblLatest.ForeColor = $Theme.Warning
 
     Invoke-AsyncOnRunspace -ScriptBlock $checkScript -OnCompleted {
@@ -409,11 +450,13 @@ $btnCheck.Add_Click({
         Update-LogBox
 
         if ($errorMsg -or -not $result) {
+            $script:availableVersions = @()
             Set-BusyState -Busy $false -Status "Fehler: $errorMsg"
             [System.Windows.Forms.MessageBox]::Show("Fehler bei der Erkennung: $errorMsg", 'BIOS-Update', 'OK', 'Error') | Out-Null
             return
         }
         if ($result.ErrorMessage) {
+            $script:availableVersions = @()
             Set-BusyState -Busy $false -Status "Fehler: $($result.ErrorMessage)"
             [System.Windows.Forms.MessageBox]::Show($result.ErrorMessage, 'BIOS-Update', 'OK', 'Error') | Out-Null
             return
@@ -421,11 +464,18 @@ $btnCheck.Add_Click({
 
         $script:sysInfo = $result.SysInfo
         $script:latest = $result.Latest
+        $script:availableVersions = @($result.AvailableVersions)
         $script:lastCheckedAt = Get-Date
 
         $lblManuf.Text = $script:sysInfo.Manufacturer
         $lblModel.Text = $script:sysInfo.Model
         $lblCurrent.Text = $script:sysInfo.CurrentBios
+
+        $listVersions.Items.Clear()
+        for ($i = 0; $i -lt $script:availableVersions.Count; $i++) {
+            [void]$listVersions.Items.Add((Format-VersionListItem -Version $script:availableVersions[$i] -IsTop ($i -eq 0)))
+        }
+        if ($listVersions.Items.Count -gt 0) { $listVersions.SelectedIndex = 0 }
 
         if ($script:latest) {
             $lblLatest.ForeColor = $Theme.Warning
@@ -434,7 +484,11 @@ $btnCheck.Add_Click({
         } else {
             $lblLatest.ForeColor = $Theme.Success
             $lblLatest.Text = "$($script:sysInfo.CurrentBios) (aktuell)"
-            Set-BusyState -Busy $false -Status 'BIOS ist bereits aktuell.'
+            if ($script:availableVersions.Count -gt 0) {
+                Set-BusyState -Busy $false -Status 'BIOS ist bereits aktuell. Ältere Versionen stehen unten zur Auswahl (Rollback).'
+            } else {
+                Set-BusyState -Busy $false -Status 'BIOS ist bereits aktuell.'
+            }
         }
     }
 })
@@ -445,12 +499,17 @@ $btnCheck.Add_Click({
 # ist (siehe $MaxCheckAgeMinutes).
 
 $installScript = {
+    param($SelectedIndex, [bool]$IsLatestRecommended)
     $out = [ordered]@{ ExitCode = $null; ErrorMessage = $null }
     try {
-        if (-not $global:lastLatest) {
+        if (-not $global:lastAvailableVersions -or $global:lastAvailableVersions.Count -eq 0) {
             throw 'Keine aktuelle Prüfung im Speicher. Bitte zuerst erneut "Prüfen" ausführen.'
         }
-        $out.ExitCode = Install-BiosForVendor -SysInfo $global:lastSysInfo -LatestInfo $global:lastLatest
+        if ($SelectedIndex -lt 0 -or $SelectedIndex -ge $global:lastAvailableVersions.Count) {
+            throw 'Ungültige Versionsauswahl.'
+        }
+        $selected = $global:lastAvailableVersions[$SelectedIndex]
+        $out.ExitCode = Install-BiosForVendor -SysInfo $global:lastSysInfo -LatestInfo $selected -IsLatestRecommended $IsLatestRecommended
     } catch {
         $out.ErrorMessage = $_.Exception.Message
     }
@@ -458,7 +517,12 @@ $installScript = {
 }
 
 $btnInstall.Add_Click({
-    if (-not $script:latest -or -not $script:sysInfo) { return }
+    if ($script:availableVersions.Count -eq 0 -or -not $script:sysInfo) { return }
+
+    $selectedIndex = $listVersions.SelectedIndex
+    if ($selectedIndex -lt 0) { $selectedIndex = 0 }
+    $selectedVersion = $script:availableVersions[$selectedIndex]
+    $isLatestRecommended = ($selectedIndex -eq 0)
 
     if ($script:lastCheckedAt -and ((Get-Date) - $script:lastCheckedAt).TotalMinutes -gt $MaxCheckAgeMinutes) {
         [System.Windows.Forms.MessageBox]::Show(
@@ -474,10 +538,14 @@ $btnInstall.Add_Click({
         return
     }
 
+    $rollbackNote = if (-not $isLatestRecommended) {
+        "`n`nHinweis: Das ist NICHT die neueste verfügbare Version - gezielte Auswahl (Rollback)."
+    } else { '' }
+
     $confirm = [System.Windows.Forms.MessageBox]::Show(
-        "Neue BIOS-Version verfügbar:`n`n" +
-        "Installiert: $($script:sysInfo.CurrentBios)`n" +
-        "Verfügbar:   $($script:latest.Version)`n`n" +
+        "Ausgewählte Version installieren:`n`n" +
+        "Installiert:  $($script:sysInfo.CurrentBios)`n" +
+        "Ausgewählt:   $($selectedVersion.Version)$rollbackNote`n`n" +
         "Jetzt installieren? Das Gerät startet dabei ggf. mehrfach neu.",
         'BIOS-Update', 'YesNo', 'Question')
     if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) { return }
@@ -488,7 +556,7 @@ $btnInstall.Add_Click({
 
     Set-BusyState -Busy $true -Status 'Lade Update herunter und installiere (kann dauern)...'
 
-    Invoke-AsyncOnRunspace -ScriptBlock $installScript -OnCompleted {
+    Invoke-AsyncOnRunspace -ScriptBlock $installScript -Parameters @{ SelectedIndex = $selectedIndex; IsLatestRecommended = $isLatestRecommended } -OnCompleted {
         param($result, $errorMsg)
         Update-LogBox
 
@@ -500,6 +568,7 @@ $btnInstall.Add_Click({
         }
 
         $script:latest = $null
+        $script:availableVersions = @()
         Set-BusyState -Busy $false -Status "Installation abgeschlossen (Exit-Code $($result.ExitCode)). Neustart wird vorbereitet..."
 
         $restartChoice = Invoke-PostUpdateRestart -CountdownSeconds $RestartCountdownSeconds

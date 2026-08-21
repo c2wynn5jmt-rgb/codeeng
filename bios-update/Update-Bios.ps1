@@ -46,7 +46,8 @@ try {
     Write-Log "Modell: $($sysInfo.Model)"
     Write-Log "Installierte BIOS-Version: $($sysInfo.CurrentBios)"
 
-    $latest = Get-LatestBiosForVendor -SysInfo $sysInfo
+    $latestInfo = Get-LatestBiosForVendor -SysInfo $sysInfo
+    $latest = $latestInfo.Latest
 
     if (-not $latest) {
         Write-Log 'BIOS ist bereits aktuell.'
