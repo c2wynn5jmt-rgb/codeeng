@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 #Requires -RunAsAdministrator
 
 <#
@@ -18,7 +18,11 @@ param(
 
     # Wie viele Neustarts BitLocker ausgesetzt bleibt (Standard: 3, deckt
     # auch mehrstufige BIOS-Updates mit mehreren Reboots ab).
-    [int]$BitLockerRebootCount = 3
+    [int]$BitLockerRebootCount = 3,
+
+    # Countdown in Sekunden vor dem automatischen Neustart nach der
+    # Installation (Dialog mit Abbrechen-Option, siehe Invoke-PostUpdateRestart).
+    [int]$RestartCountdownSeconds = 60
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,6 +86,8 @@ try {
     $exitCode = Install-BiosForVendor -SysInfo $sysInfo -LatestInfo $latest
 
     Write-Log "BIOS-Update-Prozess abgeschlossen, Exit-Code: $exitCode"
+
+    Invoke-PostUpdateRestart -CountdownSeconds $RestartCountdownSeconds | Out-Null
 }
 catch {
     Write-Log "Fehler: $($_.Exception.Message)" -Level ERROR

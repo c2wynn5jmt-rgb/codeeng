@@ -1,4 +1,4 @@
-<#
+﻿<#
 Gemeinsame Funktionen für Erkennung/Installation von BIOS-Updates
 (HP über HP CMSL, Lenovo über LSUClient). Wird sowohl von der
 Kommandozeilen-Variante (Update-Bios.ps1) als auch der GUI
@@ -125,6 +125,20 @@ function Get-HPLatestBios {
 function Install-HPBios {
     param($SoftpaqInfo)
 
+    # Bevorzugt Get-HPBIOSUpdates -Flash: HPs eigenes, für genau diesen
+    # Workflow gedachtes Kombi-Cmdlet (Erkennung + Flash + BitLocker-Suspend
+    # in einem Aufruf), laut mehreren Community-Quellen der seit ~2020
+    # empfohlene Weg, der die manuelle Softpaq-Download/Install-Kette
+    # ablöst. Primäre HP-Doku (developers.hp.com) war beim Schreiben nicht
+    # erreichbar (403) - basiert auf Sekundärquellen, siehe README.
+    if (Get-Command -Name Get-HPBIOSUpdates -ErrorAction SilentlyContinue) {
+        Write-Log "Flashe BIOS über Get-HPBIOSUpdates -Flash (Ziel-Version: $($SoftpaqInfo.Version))..."
+        Get-HPBIOSUpdates -Flash -Bitlocker suspend -Force -ErrorAction Stop
+        Write-Log 'BIOS-Flash angestoßen. Die neue Version wird erst nach einem Neustart aktiv (wird von diesem Tool danach eingeleitet).'
+        return 0
+    }
+
+    Write-Log 'Get-HPBIOSUpdates nicht verfügbar (ältere HPCMSL-Version?), falle zurück auf manuellen Softpaq-Download...' -Level WARN
     $downloadPath = Join-Path $env:TEMP "$($SoftpaqInfo.Id).exe"
     Write-Log "Lade $($SoftpaqInfo.Id) ($($SoftpaqInfo.Name), Version $($SoftpaqInfo.Version)) herunter..."
     Get-Softpaq -Number $SoftpaqInfo.Id -SaveAs $downloadPath -ErrorAction Stop
@@ -217,4 +231,98 @@ function Install-BiosForVendor {
         '*Lenovo*'  { return Install-LenovoBios -LatestInfo $LatestInfo }
         default     { throw "Nicht unterstützter Hersteller: $($SysInfo.Manufacturer)" }
     }
+}
+
+# --- Neustart nach Installation ---------------------------------------------
+# Weder Get-HPBIOSUpdates -Flash noch Install-LSUpdate starten das Gerät
+# selbst neu - beide "stagen" das Update nur, wirksam wird es erst beim
+# nächsten Boot. Ohne diesen Schritt bliebe BitLocker unbegrenzt ausgesetzt
+# (Suspend-BitLocker zählt nur bei tatsächlichen Neustarts runter) und das
+# Update würde nie angewendet, bis irgendwann zufällig manuell neu
+# gestartet wird. Zeigt daher einen Countdown-Dialog mit Abbrechen-Option,
+# statt kommentarlos durchzustarten.
+
+function Show-RestartCountdownDialog {
+    param([int]$Seconds = 60)
+
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'BIOS-Update - Neustart erforderlich'
+    $dlg.Size = New-Object System.Drawing.Size(440, 160)
+    $dlg.StartPosition = 'CenterScreen'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.TopMost = $true
+
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Location = New-Object System.Drawing.Point(20, 15)
+    $lbl.Size = New-Object System.Drawing.Size(390, 50)
+
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = 'Abbrechen (später manuell neu starten)'
+    $btnCancel.Location = New-Object System.Drawing.Point(20, 75)
+    $btnCancel.Size = New-Object System.Drawing.Size(280, 32)
+
+    $btnNow = New-Object System.Windows.Forms.Button
+    $btnNow.Text = 'Jetzt neu starten'
+    $btnNow.Location = New-Object System.Drawing.Point(310, 75)
+    $btnNow.Size = New-Object System.Drawing.Size(100, 32)
+
+    $dlg.Controls.AddRange(@($lbl, $btnCancel, $btnNow))
+    $dlg.AcceptButton = $btnNow
+    $dlg.CancelButton = $btnCancel
+
+    $result = 'Cancelled'
+    $remaining = $Seconds
+
+    $updateLabel = {
+        $lbl.Text = "Das Gerät startet in $remaining Sekunden neu, um das BIOS-Update anzuwenden.`n`nBitte offene Arbeiten jetzt speichern."
+    }
+    & $updateLabel
+
+    $cdTimer = New-Object System.Windows.Forms.Timer
+    $cdTimer.Interval = 1000
+    $cdTimer.Add_Tick({
+        $remaining--
+        & $updateLabel
+        if ($remaining -le 0) {
+            $cdTimer.Stop()
+            $script:__restartDialogResult = 'Restart'
+            $dlg.Close()
+        }
+    })
+
+    $btnCancel.Add_Click({
+        $cdTimer.Stop()
+        $script:__restartDialogResult = 'Cancelled'
+        $dlg.Close()
+    })
+    $btnNow.Add_Click({
+        $cdTimer.Stop()
+        $script:__restartDialogResult = 'Restart'
+        $dlg.Close()
+    })
+
+    $script:__restartDialogResult = 'Cancelled'
+    $cdTimer.Start()
+    [void]$dlg.ShowDialog()
+    $cdTimer.Dispose()
+
+    return $script:__restartDialogResult
+}
+
+function Invoke-PostUpdateRestart {
+    param([int]$CountdownSeconds = 60)
+
+    $choice = Show-RestartCountdownDialog -Seconds $CountdownSeconds
+    if ($choice -eq 'Restart') {
+        Write-Log 'Automatischer Neustart wird jetzt ausgeführt.'
+        Restart-Computer -Force
+    } else {
+        Write-Log 'Automatischer Neustart abgebrochen. Bitte zeitnah manuell neu starten - BitLocker ist nur für eine begrenzte Anzahl Neustarts ausgesetzt.' -Level WARN
+    }
+    return $choice
 }

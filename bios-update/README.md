@@ -20,10 +20,17 @@ und ist **noch nicht vollständig auf echter Hardware getestet**. Erkennung
 Testgerät verifiziert. Eine Stelle ist bewusst mit Unsicherheit markiert
 (Log-Warnung im Skript):
 
-- **HP Silent-Install-Switch** (`Install-HPBios`): Nutzt bevorzugt das
-  CMSL-native `Install-HPSoftpaq`, falls verfügbar. Fällt sonst auf
-  `<installer>.exe /s` zurück — das ist der übliche Silent-Switch für
-  HP-Softpaqs, aber nicht für jedes Modell verifiziert.
+- **HP-Installation** (`Install-HPBios`): Nutzt bevorzugt
+  `Get-HPBIOSUpdates -Flash -Bitlocker suspend` — laut mehreren
+  Community-Quellen (u. a. [techuisitive.com](https://techuisitive.com/updating-bios-version-with-hp-cmsl/))
+  das seit ca. 2020 von HP empfohlene Kombi-Cmdlet, das Erkennung, Flash
+  und BitLocker in einem Aufruf erledigt und die alte manuelle
+  Softpaq-Download/Install-Kette ablöst. **Nicht gegen HPs primäre
+  Dokumentation verifiziert** (developers.hp.com blockierte automatisierte
+  Zugriffe mit HTTP 403 beim Schreiben dieses Tools) — basiert auf
+  Sekundärquellen. Fällt auf die alte, manuelle Kette
+  (`Get-Softpaq`/`Install-HPSoftpaq`/`<installer>.exe /s`) zurück, falls
+  `Get-HPBIOSUpdates` auf einer älteren HPCMSL-Version nicht existiert.
 
 Der Lenovo-Pfad nutzt seit der zweiten Version das Community-Modul
 [LSUClient](https://github.com/jantari/LSUClient) statt eines eigenen
@@ -99,6 +106,9 @@ die `.bat`-Dateien zu nutzen (siehe Warnung oben im Dokument).
 # BitLocker für mehr/weniger Neustarts aussetzen (Standard: 3)
 .\Update-Bios.ps1 -BitLockerRebootCount 2
 
+# Countdown vor dem automatischen Neustart anpassen (Standard: 60 Sekunden)
+.\Update-Bios.ps1 -RestartCountdownSeconds 120
+
 # GUI direkt starten (statt per .bat):
 .\Update-Bios-GUI.ps1
 ```
@@ -115,25 +125,39 @@ Admin) oder direkt per PowerShell wie oben.
   dem Start noch einmal per Dialog nach, prüft Netzteil-Anschluss, setzt
   BitLocker aus und installiert dann im Hintergrund — das Fenster bleibt
   währenddessen bedienbar, der Log-Bereich unten füllt sich live.
-- Erkennung und Installation laufen jeweils als eigener Hintergrund-Job
-  (`Start-Job`), damit das Fenster nicht einfriert. Wichtig dabei: Beim
-  Installieren wird die Versionsprüfung im selben Job noch einmal
-  durchgeführt statt das bereits geprüfte Objekt zu übernehmen — ein
-  `Start-Job` läuft in einem eigenen Prozess, und komplexe .NET-Objekte
-  (z. B. das LSUClient-Paketobjekt für Lenovo) würden beim Grenzübertritt
-  über Job-Parameter ihre Typinformationen verlieren und die Installation
-  könnte fehlschlagen. So bleiben Abfrage und Installation im selben
-  Prozess.
+- Erkennung und Installation laufen asynchron in einer **einzigen,
+  dauerhaft offenen PowerShell-Runspace** (nicht `Start-Job`/separater
+  Prozess), damit das Fenster nicht einfriert. Der Vorteil gegenüber
+  `Start-Job`: Das Ergebnis von "Prüfen" (inkl. z. B. des
+  LSUClient-Paketobjekts für Lenovo) bleibt als `$global:lastLatest` *in
+  dieser Runspace* im Speicher und wird von "Installieren" direkt
+  weiterverwendet — ohne den langsamen Update-Katalog ein zweites Mal
+  komplett abzufragen. Bei `Start-Job` hätte der Prozesswechsel dieses
+  Objekt auf reine Daten reduziert und seine Typinformation verloren,
+  weshalb frühere Versionen dort zwangsweise doppelt abgefragt haben.
+- Ist die letzte Prüfung älter als `-MaxCheckAgeMinutes` (Standard: 20),
+  fordert "Installieren" zu einem erneuten "Prüfen" auf statt mit
+  möglicherweise veralteten Daten zu installieren.
 - Schließen des Fensters während ein Vorgang läuft fragt vorher noch einmal
   nach.
+
+**Grenze von `Get-LSUpdate` (Lenovo):** Es gibt keinen eingebauten
+Kategorie-Filter — jeder Aufruf lädt und prüft grundsätzlich alle
+Pakete (Treiber, Firmware, Dolby Vision, etc.), nicht nur BIOS. Ein
+`Where-Object`-Filter danach spart keine Zeit, weil zu dem Zeitpunkt schon
+alles geladen wurde ([LSUClient-Dokumentation](https://jantari.github.io/LSUClient-docs/docs/cmdlets/get-lsupdate/)).
+Das lässt sich an der Quelle nicht abkürzen — die einzige Stellschraube auf
+unserer Seite ist, den Katalog nicht öfter als nötig abzufragen (siehe
+oben).
 
 **Noch nicht auf echter Hardware getestet** (im Gegensatz zur
 Kommandozeilen-Variante, die bereits erfolgreich Erkennung auf einem
 Lenovo-Testgerät durchlaufen hat). Die zugrundeliegende Logik ist identisch
 und schon verifiziert — was neu und ungetestet ist, ist ausschließlich die
-Bedienoberfläche und die Job-basierte asynchrone Ausführung selbst. Bei
-seltsamem Verhalten (Buttons reagieren nicht, Log aktualisiert sich nicht)
-zuerst `Update-Bios.ps1` direkt in der Konsole zum Vergleich laufen lassen.
+Bedienoberfläche und die Runspace-basierte asynchrone Ausführung selbst.
+Bei seltsamem Verhalten (Buttons reagieren nicht, Log aktualisiert sich
+nicht) zuerst `Update-Bios.ps1` direkt in der Konsole zum Vergleich laufen
+lassen.
 
 ## Ablauf
 
@@ -153,7 +177,27 @@ zuerst `Update-Bios.ps1` direkt in der Konsole zum Vergleich laufen lassen.
    den BIOS-Update-Neustarts; Schutz aktiviert sich nach N Neustarts von
    selbst wieder — kein manuelles `Resume-BitLocker` nötig, es sei denn,
    es sind absehbar mehr Neustarts als `N`).
+
+   **Wichtig beim Testen (verifiziert 2026-08-21):** Jeder erneute Aufruf
+   von `Suspend-BitLockerForUpdate` setzt den Zähler wieder auf `N` zurück,
+   er zählt nicht kumulativ über mehrere Skript-Läufe. Wer das Tool
+   mehrfach hintereinander testet (z. B. Installation mehrmals anstößt),
+   sieht BitLocker also länger als `N` Neustarts pausiert — das ist kein
+   Bug, sondern der Zähler startet bei jedem Lauf neu. Auf einem
+   Lenovo-Testgerät hat sich der Schutz nach 3 Neustarts **ohne**
+   zwischenzeitlichen erneuten Skript-Aufruf wie erwartet automatisch
+   wieder aktiviert.
 7. Update herunterladen und still installieren.
+8. **Neustart:** Weder `Get-HPBIOSUpdates -Flash` noch `Install-LSUpdate`
+   starten das Gerät selbst neu — beide "stagen" das Update nur, wirksam
+   wird es erst beim nächsten Boot. Deshalb zeigt `Invoke-PostUpdateRestart`
+   danach einen Countdown-Dialog (Standard: 60 Sekunden, per
+   `-RestartCountdownSeconds` änderbar) mit "Jetzt neu starten" /
+   "Abbrechen". Ohne Bestätigung nach Ablauf des Countdowns startet das
+   Gerät automatisch neu (`Restart-Computer -Force`); bei "Abbrechen" bleibt
+   es an, mit einer Log-Warnung, dass zeitnah manuell neu gestartet werden
+   sollte (BitLocker bleibt sonst unbegrenzt ausgesetzt, da
+   `-RebootCount` nur bei tatsächlichen Neustarts runterzählt).
 
 Alles wird nach `logs/bios-update_<Zeitstempel>.log` protokolliert.
 
