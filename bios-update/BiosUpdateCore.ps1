@@ -108,7 +108,9 @@ function Initialize-PSGalleryAccess {
     # den Parameter würde HPCMSL stattdessen interaktiv nach Lizenzzustimmung
     # fragen - im GUI-Runspace ohne interaktiven Host schlägt das genauso fehl
     # wie die NuGet-Rückfrage oben. Deshalb PowerShellGet bei Bedarf einmalig
-    # nicht-interaktiv aktualisieren, bevor HPCMSL installiert wird.
+    # nicht-interaktiv aktualisieren (Install-ModuleAcceptingLicense unten
+    # nutzt danach einen frischen Kindprozess, weil das Update selbst im
+    # laufenden Prozess nicht wirkt - siehe dort).
     if (-not (Get-Command Install-Module).Parameters.ContainsKey('AcceptLicense')) {
         Write-Log 'PowerShellGet ist zu alt für -AcceptLicense, aktualisiere...' -Level WARN
         # -AllowClobber: Install-Module -Name PowerShellGet aktualisiert dabei
@@ -117,7 +119,38 @@ function Initialize-PSGalleryAccess {
         # -AllowClobber bricht das mit "CommandAlreadyAvailable" ab (auf
         # echter HP-Hardware verifiziert, 2026-08-22).
         Install-Module -Name PowerShellGet -MinimumVersion 2.2.5 -Scope CurrentUser -Force -Confirm:$false -SkipPublisherCheck -AllowClobber -ErrorAction Stop
-        Import-Module -Name PowerShellGet -MinimumVersion 2.2.5 -Force -ErrorAction Stop
+    }
+}
+
+# Installiert ein PSGallery-Modul, das RequireLicenseAcceptance verlangt
+# (aktuell nur HPCMSL). Läuft der aktuelle Prozess noch mit dem alten,
+# mitgelieferten PowerShellGet (kein -AcceptLicense-Parameter), reicht ein
+# Install-Module -Name PowerShellGet -Force im selben Prozess NICHT, um
+# direkt danach -AcceptLicense nutzen zu können: die alte PowerShellGet-
+# Assembly ist im Prozess schon geladen und lässt sich zur Laufzeit nicht
+# austauschen (von Microsoft so dokumentiert - ein Import-Module -Force
+# lädt zwar neue Funktionen nach, der schon gebundene Install-Module-Befehl
+# bleibt aber der alte). Deshalb in diesem Fall einen frischen
+# PowerShell-Kindprozess starten, der PowerShellGet neu von der Platte lädt
+# (auf echter HP-Hardware verifiziert, 2026-08-22).
+function Install-ModuleAcceptingLicense {
+    param([Parameter(Mandatory)][string]$Name)
+
+    Initialize-PSGalleryAccess
+
+    if ((Get-Command Install-Module).Parameters.ContainsKey('AcceptLicense')) {
+        Install-Module -Name $Name -Scope CurrentUser -Force -AcceptLicense -Confirm:$false -ErrorAction Stop
+        return
+    }
+
+    Write-Log "PowerShellGet-Update wirkt erst in einem neuen Prozess, installiere $Name deshalb in einem Kindprozess..." -Level WARN
+    $cmd = "Install-Module -Name $Name -Scope CurrentUser -Force -AcceptLicense -Confirm:`$false -ErrorAction Stop"
+    $proc = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd -Wait -PassThru -WindowStyle Hidden
+    if ($proc.ExitCode -ne 0) {
+        throw "Install-Module -Name $Name im Kindprozess fehlgeschlagen (ExitCode $($proc.ExitCode)). Bitte diese PowerShell-Sitzung schließen, neu öffnen und das Skript erneut starten."
+    }
+    if (-not (Get-Module -ListAvailable -Name $Name)) {
+        throw "Install-Module -Name $Name im Kindprozess lief ohne Fehler, das Modul ist aber weiterhin nicht auffindbar. Bitte diese PowerShell-Sitzung schließen, neu öffnen und das Skript erneut starten."
     }
 }
 
@@ -128,8 +161,7 @@ function Get-HPLatestBios {
 
     if (-not (Get-Module -ListAvailable -Name HPCMSL)) {
         Write-Log 'HP CMSL-Modul nicht gefunden, installiere aus PSGallery...' -Level WARN
-        Initialize-PSGalleryAccess
-        Install-Module -Name HPCMSL -Scope CurrentUser -Force -AcceptLicense -Confirm:$false -ErrorAction Stop
+        Install-ModuleAcceptingLicense -Name HPCMSL
     }
     Import-Module HPCMSL -ErrorAction Stop
 
