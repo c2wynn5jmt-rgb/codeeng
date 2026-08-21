@@ -99,6 +99,21 @@ function Initialize-PSGalleryAccess {
     if ((Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue).InstallationPolicy -ne 'Trusted') {
         Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
     }
+
+    # Das mit Windows PowerShell 5.1 mitgelieferte PowerShellGet (1.0.0.1) kennt
+    # den Parameter -AcceptLicense noch nicht (erst ab PowerShellGet 2.0.0) -
+    # Install-Module -Name HPCMSL -AcceptLicense bricht damit sofort mit
+    # "Es wurde kein Parameter gefunden, der dem Parameternamen 'AcceptLicense'
+    # entspricht" ab (auf echter HP-Hardware verifiziert, 2026-08-21). Ohne
+    # den Parameter würde HPCMSL stattdessen interaktiv nach Lizenzzustimmung
+    # fragen - im GUI-Runspace ohne interaktiven Host schlägt das genauso fehl
+    # wie die NuGet-Rückfrage oben. Deshalb PowerShellGet bei Bedarf einmalig
+    # nicht-interaktiv aktualisieren, bevor HPCMSL installiert wird.
+    if (-not (Get-Command Install-Module).Parameters.ContainsKey('AcceptLicense')) {
+        Write-Log 'PowerShellGet ist zu alt für -AcceptLicense, aktualisiere...' -Level WARN
+        Install-Module -Name PowerShellGet -MinimumVersion 2.2.5 -Scope CurrentUser -Force -Confirm:$false -SkipPublisherCheck -ErrorAction Stop
+        Import-Module -Name PowerShellGet -MinimumVersion 2.2.5 -Force -ErrorAction Stop
+    }
 }
 
 # --- HP -----------------------------------------------------------------

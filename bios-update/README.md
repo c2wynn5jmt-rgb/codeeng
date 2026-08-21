@@ -36,6 +36,16 @@ Testgerät verifiziert. Eine Stelle ist bewusst mit Unsicherheit markiert
   (`Get-Softpaq`/`Install-HPSoftpaq`/`<installer>.exe /s`) zurück, falls
   `Get-HPBIOSUpdates` auf einer älteren HPCMSL-Version nicht existiert.
 
+**Getestet und gefixt (2026-08-21, HP ENVY x360 Convertible 15-ee0xxx):**
+Erkennung lief sofort korrekt (Hersteller, Modell, installierte BIOS-Version
+F.24). `Install-Module -Name HPCMSL ... -AcceptLicense` brach danach ab mit
+"Es wurde kein Parameter gefunden, der dem Parameternamen 'AcceptLicense'
+entspricht" — das mit Windows PowerShell 5.1 mitgelieferte PowerShellGet
+(1.0.0.1) kennt `-AcceptLicense` noch nicht (erst ab PowerShellGet 2.0.0).
+Behoben, indem `Initialize-PSGalleryAccess` PowerShellGet bei Bedarf zuerst
+non-interaktiv auf mindestens 2.2.5 aktualisiert, bevor HPCMSL installiert
+wird.
+
 Der Lenovo-Pfad nutzt seit der zweiten Version das Community-Modul
 [LSUClient](https://github.com/jantari/LSUClient) statt eines eigenen
 Katalog-Parsers (der erste Versuch, Lenovos Katalog-XML direkt zu laden und
