@@ -45,15 +45,15 @@ $guiText = Get-Content -Path $guiPath -Raw
 $coreBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($coreText))
 $embedAssignment = "`$script:EmbeddedCoreScriptText = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$coreBase64'))"
 
-# Muss NACH den #Requires-Zeilen eingefügt werden (die müssen als erste
-# Statements im Skript stehen), deshalb gezielt direkt danach einschieben
-# statt einfach vorne anzuhängen.
-$replacement = '$1' + "`r`n`r`n" + $embedAssignment
-$guiTextWithEmbed = $guiText -replace '(?m)(^#Requires -RunAsAdministrator\s*$)', $replacement
-
-if ($guiTextWithEmbed -eq $guiText) {
-    throw "Konnte '#Requires -RunAsAdministrator' in Update-Bios-GUI.ps1 nicht finden - Datei wurde vermutlich geändert, Build-Exe.ps1 muss angepasst werden."
+# Ersetzt eine feste Markierung in Update-Bios-GUI.ps1 (einfacher, exakter
+# Textersatz statt Regex-Suche) - die Markierung steht bewusst NACH
+# [CmdletBinding()]/param(), da PowerShell davor nur Kommentare/#Requires
+# erlaubt; ein echtes Statement an falscher Stelle bricht das Parsen.
+$marker = '# __EMBEDDED_CORE_SCRIPT_INJECTION_POINT__'
+if ($guiText -notlike "*$marker*") {
+    throw "Marker '$marker' nicht in Update-Bios-GUI.ps1 gefunden - Datei wurde vermutlich geändert, Build-Exe.ps1 muss angepasst werden."
 }
+$guiTextWithEmbed = $guiText.Replace($marker, $embedAssignment)
 
 Set-Content -Path $combinedPath -Value $guiTextWithEmbed -Encoding UTF8
 

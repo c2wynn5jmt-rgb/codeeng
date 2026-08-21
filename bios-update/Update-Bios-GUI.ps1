@@ -34,6 +34,12 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+# __EMBEDDED_CORE_SCRIPT_INJECTION_POINT__
+# (Build-Exe.ps1 ersetzt obige Zeile durch eine $script:EmbeddedCoreScriptText-
+# Zuweisung. Muss hier stehen, NICHT vor [CmdletBinding()]/param() weiter
+# oben - PowerShell erlaubt dort nur Kommentare/#Requires davor, ein
+# echtes Statement an der falschen Stelle bricht das Parsen von param().)
+
 $corePath = Join-Path $PSScriptRoot 'BiosUpdateCore.ps1'
 $logDir = Join-Path $PSScriptRoot 'logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
