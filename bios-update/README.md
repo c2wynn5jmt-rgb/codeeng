@@ -1,9 +1,16 @@
-# BIOS-Update-Skript (HP + Lenovo, Windows)
+# BIOS-Update-Tool (HP + Lenovo, Windows)
 
 Erkennt Hersteller/Modell, installierte und neueste verfügbare BIOS-Version,
 fragt per Dialog nach, ob aktualisiert werden soll, setzt BitLocker für die
 Update-Neustarts aus (kein Wiederherstellungsschlüssel nötig) und installiert
 das Update.
+
+Zwei Frontends, dieselbe Logik (`BiosUpdateCore.ps1`):
+
+- **`Update-Bios.ps1`** — Kommandozeile, für Automatisierung/Skripting.
+- **`Update-Bios-GUI.ps1`** — Fenster mit Prüfen-/Installieren-Buttons,
+  Fortschrittsanzeige und Log-Bereich. Für den täglichen Gebrauch gedacht,
+  auch für Kolleg:innen ohne PowerShell-Erfahrung (siehe Abschnitt GUI).
 
 ## ⚠️ Vor dem produktiven Einsatz unbedingt lesen
 
@@ -91,7 +98,42 @@ die `.bat`-Dateien zu nutzen (siehe Warnung oben im Dokument).
 
 # BitLocker für mehr/weniger Neustarts aussetzen (Standard: 3)
 .\Update-Bios.ps1 -BitLockerRebootCount 2
+
+# GUI direkt starten (statt per .bat):
+.\Update-Bios-GUI.ps1
 ```
+
+## GUI (`Update-Bios-GUI.ps1`)
+
+Start per Doppelklick auf `Run-Update-Bios-GUI.bat` (fragt per UAC nach
+Admin) oder direkt per PowerShell wie oben.
+
+- Beim Öffnen wird automatisch einmal geprüft (Hersteller, Modell,
+  installierte und neueste Version erscheinen oben im Fenster).
+- **Prüfen** stößt die Erkennung erneut an.
+- **Installieren** ist nur aktiv, wenn ein Update gefunden wurde. Fragt vor
+  dem Start noch einmal per Dialog nach, prüft Netzteil-Anschluss, setzt
+  BitLocker aus und installiert dann im Hintergrund — das Fenster bleibt
+  währenddessen bedienbar, der Log-Bereich unten füllt sich live.
+- Erkennung und Installation laufen jeweils als eigener Hintergrund-Job
+  (`Start-Job`), damit das Fenster nicht einfriert. Wichtig dabei: Beim
+  Installieren wird die Versionsprüfung im selben Job noch einmal
+  durchgeführt statt das bereits geprüfte Objekt zu übernehmen — ein
+  `Start-Job` läuft in einem eigenen Prozess, und komplexe .NET-Objekte
+  (z. B. das LSUClient-Paketobjekt für Lenovo) würden beim Grenzübertritt
+  über Job-Parameter ihre Typinformationen verlieren und die Installation
+  könnte fehlschlagen. So bleiben Abfrage und Installation im selben
+  Prozess.
+- Schließen des Fensters während ein Vorgang läuft fragt vorher noch einmal
+  nach.
+
+**Noch nicht auf echter Hardware getestet** (im Gegensatz zur
+Kommandozeilen-Variante, die bereits erfolgreich Erkennung auf einem
+Lenovo-Testgerät durchlaufen hat). Die zugrundeliegende Logik ist identisch
+und schon verifiziert — was neu und ungetestet ist, ist ausschließlich die
+Bedienoberfläche und die Job-basierte asynchrone Ausführung selbst. Bei
+seltsamem Verhalten (Buttons reagieren nicht, Log aktualisiert sich nicht)
+zuerst `Update-Bios.ps1` direkt in der Konsole zum Vergleich laufen lassen.
 
 ## Ablauf
 
