@@ -127,6 +127,25 @@ $form.StartPosition = 'CenterScreen'
 $form.BackColor = $Theme.WindowBg
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9.5)
 
+# Fenster-Icon (Titelleiste/Taskleiste/Alt+Tab) - ein eigenes Thema
+# gegenüber dem exe-Datei-Icon (das kommt von ps2exe -iconFile). Im
+# Entwicklungsmodus liegt bios-update.ico neben dem Skript -> direkt
+# laden. In der kompilierten exe gibt es diese Datei nicht separat, dafür
+# holt ExtractAssociatedIcon das bereits in der exe eingebettete Icon.
+try {
+    $devIconPath = Join-Path $PSScriptRoot 'bios-update.ico'
+    if (Test-Path $devIconPath) {
+        $form.Icon = New-Object System.Drawing.Icon($devIconPath)
+    } else {
+        $exePath = [System.Reflection.Assembly]::GetExecutingAssembly().Location
+        if ($exePath -and (Test-Path $exePath)) {
+            $form.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exePath)
+        }
+    }
+} catch {
+    # Icon ist rein kosmetisch - ein Fehler hier soll die App nicht blockieren.
+}
+
 # Kopfzeile ---
 
 $headerPanel = New-Object System.Windows.Forms.Panel
