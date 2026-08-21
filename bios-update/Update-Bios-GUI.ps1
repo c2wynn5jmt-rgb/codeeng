@@ -34,6 +34,19 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+# Run-Update-Bios-GUI.bat startet dieses Skript mit -WindowStyle Hidden -
+# ohne Konsolenfenster wäre ein Fehler beim Fensteraufbau (z.B. eine falsch
+# geschriebene .NET-Property) sonst komplett unsichtbar: der Prozess bricht
+# lautlos ab, es "passiert einfach nichts" (auf echter Hardware so erlebt,
+# 2026-08-22 - Ursache war $listVersions.IntegerHeight statt IntegralHeight).
+# Deshalb ab hier jeden nicht abgefangenen Fehler als MessageBox zeigen.
+trap {
+    [System.Windows.Forms.MessageBox]::Show(
+        "Unerwarteter Fehler beim Start:`n`n$($_.Exception.Message)`n`n$($_.InvocationInfo.PositionMessage)",
+        'BIOS-Update - Fehler', 'OK', 'Error') | Out-Null
+    exit 1
+}
+
 # In einer per ps2exe kompilierten exe ist $PSScriptRoot leer (das Skript
 # existiert dann nicht mehr als echte Datei) - ps2exe stellt stattdessen
 # $ScriptRoot bereit. Offiziell dokumentierter Fallback laut ps2exe-README,
@@ -255,7 +268,7 @@ $listVersions.Location = New-Object System.Drawing.Point(20, 270)
 $listVersions.Size = New-Object System.Drawing.Size(640, 82)
 $listVersions.Anchor = 'Top,Left,Right'
 $listVersions.Font = New-Object System.Drawing.Font('Consolas', 9)
-$listVersions.IntegerHeight = $false
+$listVersions.IntegralHeight = $false
 
 # Buttons ---
 
