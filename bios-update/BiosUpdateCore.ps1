@@ -111,7 +111,12 @@ function Initialize-PSGalleryAccess {
     # nicht-interaktiv aktualisieren, bevor HPCMSL installiert wird.
     if (-not (Get-Command Install-Module).Parameters.ContainsKey('AcceptLicense')) {
         Write-Log 'PowerShellGet ist zu alt für -AcceptLicense, aktualisiere...' -Level WARN
-        Install-Module -Name PowerShellGet -MinimumVersion 2.2.5 -Scope CurrentUser -Force -Confirm:$false -SkipPublisherCheck -ErrorAction Stop
+        # -AllowClobber: Install-Module -Name PowerShellGet aktualisiert dabei
+        # auch die Abhängigkeit PackageManagement, deren Cmdlets (Find-Package
+        # etc.) im laufenden System schon geladen/verfügbar sind - ohne
+        # -AllowClobber bricht das mit "CommandAlreadyAvailable" ab (auf
+        # echter HP-Hardware verifiziert, 2026-08-22).
+        Install-Module -Name PowerShellGet -MinimumVersion 2.2.5 -Scope CurrentUser -Force -Confirm:$false -SkipPublisherCheck -AllowClobber -ErrorAction Stop
         Import-Module -Name PowerShellGet -MinimumVersion 2.2.5 -Force -ErrorAction Stop
     }
 }

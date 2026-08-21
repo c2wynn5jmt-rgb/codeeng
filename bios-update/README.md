@@ -44,7 +44,11 @@ entspricht" — das mit Windows PowerShell 5.1 mitgelieferte PowerShellGet
 (1.0.0.1) kennt `-AcceptLicense` noch nicht (erst ab PowerShellGet 2.0.0).
 Behoben, indem `Initialize-PSGalleryAccess` PowerShellGet bei Bedarf zuerst
 non-interaktiv auf mindestens 2.2.5 aktualisiert, bevor HPCMSL installiert
-wird.
+wird. Dabei zusätzlich `-AllowClobber` nötig: das aktualisierte PowerShellGet
+zieht die Abhängigkeit `PackageManagement` mit, deren Cmdlets im laufenden
+System schon geladen sind — ohne `-AllowClobber` bricht das mit
+"CommandAlreadyAvailable" ab (auf echter HP-Hardware verifiziert,
+2026-08-22).
 
 Der Lenovo-Pfad nutzt seit der zweiten Version das Community-Modul
 [LSUClient](https://github.com/jantari/LSUClient) statt eines eigenen
