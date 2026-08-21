@@ -81,6 +81,24 @@ nicht OS-Versions-spezifisch, nur die Katalog-Referenzdatei ist es
 (Fallback-Liste selbst nicht gegen HPs Katalog verifiziert, s. o. zur
 Doku-Zugänglichkeit).
 
+**Fünfter Fund, selbes Gerät — vermutlich eine Geräte-Einschränkung, kein
+Skript-Bug:** Alle vier Fallback-Versionen scheiterten ebenfalls mit
+"Could not find data file". Zur Diagnose direkt `Get-HPBIOSUpdates` (das
+andere, in `Install-HPBios` als primär bevorzugte HP-Cmdlet) separat
+aufgerufen — schlägt mit derselben Meldung fehl: *"Unable to retrieve BIOS
+data for a platform with ID 876F (data file not found)"*. Zwei
+unterschiedliche HPCMSL-Cmdlets scheitern identisch, unabhängig von der
+OS-Version — das spricht dafür, dass HP für diese Plattform-ID schlicht
+keine Katalogdaten hinterlegt hat, nicht für eine falsche OS-Version-Wahl.
+HP CMSL/HPIA ist primär für Business-Geräte (EliteBook/ProBook/ZBook)
+ausgelegt; Consumer-Modelle (Envy/Pavilion/Spectre — wie das Testgerät, ein
+HP ENVY x360 Convertible 15-ee0xxx) fehlen im HPIA-Katalog teils komplett.
+**Nächster Schritt:** auf einem HP-Business-Gerät testen (das eigentliche
+Zielgerät für den Bechtle-Einsatz), dort sollte die Katalogabdeckung
+vorhanden sein. Die Fehlermeldung im Skript wurde für diesen Fall klarer
+gemacht (erkennt "data file not found" und weist direkt auf die vermutliche
+Ursache hin), statt nur einen rohen HTTP-404-Fehler zu zeigen.
+
 Der Lenovo-Pfad nutzt seit der zweiten Version das Community-Modul
 [LSUClient](https://github.com/jantari/LSUClient) statt eines eigenen
 Katalog-Parsers (der erste Versuch, Lenovos Katalog-XML direkt zu laden und

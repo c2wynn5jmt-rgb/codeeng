@@ -227,6 +227,18 @@ function Get-HPLatestBios {
     }
 
     if (-not $softpaqs) {
+        # "data file not found" von HP CMSL bedeutet: für diese Plattform-ID
+        # gibt es bei HP überhaupt keine Katalog-Referenzdatei - egal welche
+        # OS-Version man probiert. Auf echter Hardware reproduziert (2026-08-22,
+        # HP ENVY x360 Convertible, Plattform 876F): Get-SoftpaqList UND
+        # Get-HPBIOSUpdates scheitern beide identisch mit dieser Meldung. HP
+        # CMSL/HPIA ist primär für Business-Geräte (EliteBook/ProBook/ZBook)
+        # ausgelegt - Consumer-Modelle (Envy/Pavilion/Spectre) stehen oft
+        # schlicht nicht im HPIA-Katalog. Das ist keine falsche OS-Version,
+        # sondern eine Katalog-Lücke für dieses Gerät.
+        if ($lastError -and $lastError.Exception.Message -match 'data file not found|Unable to retrieve BIOS data') {
+            throw "HP liefert für Plattform $platform keine Katalogdaten (auch nicht mit älteren OS-Referenzversionen) - Get-HPBIOSUpdates scheitert vermutlich mit derselben Meldung. HP CMSL/HPIA deckt primär Business-Geräte (EliteBook/ProBook/ZBook) ab; Consumer-Modelle fehlen im Katalog teils komplett. Auf einem Business-Gerät testen, oder BIOS für dieses Modell manuell über support.hp.com suchen."
+        }
         if ($lastError) { throw $lastError }
         throw "Keine BIOS-Softpaqs für Plattform $platform gefunden."
     }
