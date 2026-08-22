@@ -58,6 +58,26 @@ function Suspend-BitLockerForUpdate {
     }
 }
 
+# Liefert die Recovery-Passwörter aller BitLocker-Volumes mit einem
+# entsprechenden Key-Protector. WICHTIG: Der Rückgabewert darf NIRGENDS per
+# Write-Log ausgegeben werden - Recovery-Keys gehören nicht in eine
+# Log-Datei, die z.B. für Ticket-Doku geteilt oder versehentlich mit
+# hochgeladen werden könnte. Aufrufer zeigen das Ergebnis nur transient an
+# (MessageBox/Konsole per Write-Host), nie persistiert.
+function Get-BitLockerRecoveryKeys {
+    $result = foreach ($vol in (Get-BitLockerVolume)) {
+        foreach ($protector in ($vol.KeyProtector | Where-Object { $_.KeyProtectorType -eq 'RecoveryPassword' })) {
+            [PSCustomObject]@{
+                MountPoint       = $vol.MountPoint
+                ProtectionStatus = $vol.ProtectionStatus
+                RecoveryPassword = $protector.RecoveryPassword
+                KeyProtectorId   = $protector.KeyProtectorId
+            }
+        }
+    }
+    return @($result)
+}
+
 function Compare-BiosVersion {
     # Vergleicht zwei BIOS-Versionsstrings numerisch, soweit möglich
     # (z.B. "01.08.03" vs "01.09.00"). Fällt bei nicht-numerischen

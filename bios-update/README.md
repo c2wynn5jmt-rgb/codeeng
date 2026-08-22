@@ -286,6 +286,21 @@ Windows direkt per UAC nach Administratorrechten (eingebaut über
 `Update-Bios.ps1` (Kommandozeile) bleibt weiterhin auf `BiosUpdateCore.ps1`
 als separate Datei angewiesen — nur die GUI wird zur eigenständigen exe.
 
+## BitLocker-Recovery-Key anzeigen
+
+- **GUI**: Button "BitLocker-Key" zeigt die Recovery-Passwörter aller
+  Volumes mit aktivem BitLocker-Schutz in einer eigenen Dialog-Box.
+- **Kommandozeile**: `.\Update-Bios.ps1 -ShowRecoveryKey` gibt sie über
+  `Write-Host` aus und beendet sich danach, ohne Erkennung/Installation.
+
+**Wichtig:** Der Key wird **nirgends geloggt** (`Get-BitLockerRecoveryKeys`
+in `BiosUpdateCore.ps1` nutzt bewusst kein `Write-Log`) - landet also weder
+in `logs/*.log` noch im Log-Bereich der GUI. Grund: Recovery-Keys gehören
+nicht in eine Datei, die z. B. für Ticket-Doku geteilt oder aus Versehen
+mit hochgeladen werden könnte. Nur zur einmaligen, transienten Weitergabe
+gedacht, falls BitLocker nach dem BIOS-Update den Schlüssel abfragt (siehe
+Warnhinweis im Dialog).
+
 ## Ablauf
 
 1. Modell, Hersteller und installierte BIOS-Version per WMI ermitteln

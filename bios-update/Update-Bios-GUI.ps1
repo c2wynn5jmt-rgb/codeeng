@@ -296,6 +296,13 @@ $btnInstall.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawi
 $btnInstall.Enabled = $false
 Set-ButtonStyle -Button $btnInstall -BackColor $Theme.ButtonDisabled -ForeColor $Theme.ButtonDisabledFg
 
+$btnRecoveryKey = New-Object System.Windows.Forms.Button
+$btnRecoveryKey.Text = 'BitLocker-Key'
+$btnRecoveryKey.Location = New-Object System.Drawing.Point(324, 364)
+$btnRecoveryKey.Size = New-Object System.Drawing.Size(140, 38)
+$btnRecoveryKey.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
+Set-ButtonStyle -Button $btnRecoveryKey -BackColor $Theme.TextMuted
+
 # Fortschritt/Status ---
 
 $progressBar = New-Object System.Windows.Forms.ProgressBar
@@ -329,7 +336,7 @@ $txtLog.Anchor = 'Top,Bottom,Left,Right'
 $form.Controls.AddRange(@(
     $infoCard,
     $lblVersions, $listVersions,
-    $btnCheck, $btnInstall,
+    $btnCheck, $btnInstall, $btnRecoveryKey,
     $progressBar, $lblStatus, $txtLog,
     $headerPanel
 ))
@@ -590,6 +597,36 @@ $btnInstall.Add_Click({
         }
         # Bei 'Restart' fährt das Gerät herunter, der Rest ist irrelevant.
     }
+})
+
+# --- BitLocker-Recovery-Key ---------------------------------------------
+# Läuft synchron im GUI-Thread (nicht über die Hintergrund-Runspace) - ist
+# eine schnelle lokale Abfrage, kein Katalog-Download wie bei Prüfen/
+# Installieren. WICHTIG: Zeigt den Key nur transient per MessageBox, loggt
+# ihn nie (siehe Kommentar bei Get-BitLockerRecoveryKeys in
+# BiosUpdateCore.ps1) - landet also auch nicht im Log-Bereich des Fensters.
+
+$btnRecoveryKey.Add_Click({
+    try {
+        $keys = Get-BitLockerRecoveryKeys
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Fehler beim Auslesen der Recovery-Keys: $($_.Exception.Message)",
+            'BitLocker-Recovery-Key', 'OK', 'Error') | Out-Null
+        return
+    }
+
+    if ($keys.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show(
+            'Kein aktiver BitLocker-Schutz mit Recovery-Passwort auf diesem Gerät gefunden.',
+            'BitLocker-Recovery-Key', 'OK', 'Information') | Out-Null
+        return
+    }
+
+    $text = ($keys | ForEach-Object { "Laufwerk $($_.MountPoint):`n$($_.RecoveryPassword)" }) -join "`n`n"
+    [System.Windows.Forms.MessageBox]::Show(
+        "$text`n`nHinweis: Nicht in Tickets/Logs speichern - nur zur einmaligen Weitergabe, falls BitLocker den Schlüssel abfragt.",
+        'BitLocker-Recovery-Key', 'OK', 'Warning') | Out-Null
 })
 
 # --- Aufräumen ---------------------------------------------------------------

@@ -16,6 +16,10 @@ param(
     # Nur erkennen und Versionen anzeigen, nichts installieren.
     [switch]$DetectOnly,
 
+    # Zeigt nur die BitLocker-Recovery-Keys dieses Geräts an (per Write-Host,
+    # NICHT geloggt) und beendet sich danach - keine Erkennung/Installation.
+    [switch]$ShowRecoveryKey,
+
     # Wie viele Neustarts BitLocker ausgesetzt bleibt (Standard: 3, deckt
     # auch mehrstufige BIOS-Updates mit mehreren Reboots ab).
     [int]$BitLockerRebootCount = 3,
@@ -41,6 +45,18 @@ function Show-YesNoDialog {
 }
 
 try {
+    if ($ShowRecoveryKey) {
+        $keys = Get-BitLockerRecoveryKeys
+        if ($keys.Count -eq 0) {
+            Write-Host 'Kein aktiver BitLocker-Schutz mit Recovery-Passwort auf diesem Gerät gefunden.'
+        } else {
+            foreach ($k in $keys) {
+                Write-Host "Laufwerk $($k.MountPoint): $($k.RecoveryPassword)"
+            }
+        }
+        exit 0
+    }
+
     $sysInfo = Get-SystemInfo
     Write-Log "Hersteller: $($sysInfo.Manufacturer)"
     Write-Log "Modell: $($sysInfo.Model)"
